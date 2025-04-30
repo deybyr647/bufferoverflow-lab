@@ -9,13 +9,13 @@
 // Frobruary 14th, 1067 GUE
 
 // THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED
-// BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING THE 
-// COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM “AS IS” 
-// WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, 
-// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND 
-// FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY 
-// AND PERFORMANCE OF THE PROGRAM IS WITH YOU. SHOULD THE PROGRAM PROVE 
-// DEFECTIVE, *AND IT WILL*, YOU ASSUME THE COST OF ALL NECESSARY 
+// BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING THE
+// COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM “AS IS”
+// WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING,
+// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+// FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY
+// AND PERFORMANCE OF THE PROGRAM IS WITH YOU. SHOULD THE PROGRAM PROVE
+// DEFECTIVE, *AND IT WILL*, YOU ASSUME THE COST OF ALL NECESSARY
 // SERVICING, REPAIR OR CORRECTION.
 
 #include <stdio.h>
@@ -81,9 +81,9 @@ char *get_header(const httpreq_t *req, const char* headername) {
 	strcat(searchstr, headername);
 	strcat(searchstr, ": ");
 
-	if (hdrptr = strstr(req->headers, searchstr)) { 
-		hdrptr += strlen(searchstr); 
-		if (hdrend = strstr(hdrptr, "\r\n")) { 
+	if (hdrptr = strstr(req->headers, searchstr)) {
+		hdrptr += strlen(searchstr);
+		if (hdrend = strstr(hdrptr, "\r\n")) {
 			char hdrval[1024]; // temporary return value
 			memcpy((char *)hdrval, hdrptr, (hdrend - hdrptr));
 			hdrval[hdrend - hdrptr] = '\0'; // tack null onto end of header value
@@ -186,7 +186,7 @@ int parsereq(httpreq_t *req, char *datastr) {
 	strcpy(req->headers, last_position);
 
 	return 0;
-} 
+}
 
 char *contype(char *ext) {
 	if (strcmp(ext, "html") == 0) return "text/html";
@@ -211,243 +211,226 @@ char *status(int statcode) {
 }
 
 int send_response(int sockfd, httpreq_t *req, int statcode) {
-	int urifd;
-	const int BUFSIZE = 1024;
-	char sendmessage[BUFSIZE];
-	char *path = req->uri;
+    int urifd = -1; //  Initialize urifd
+    const int BUFSIZE = 1024;
+    char sendmessage[BUFSIZE];
+    char *path = NULL; //  Initialize path
+    char path_buffer[BUFSIZE]; //  Local buffer for path manipulation
+    struct stat stbuf = {0}; //  Initialize stat buffer
 
-	if (req->uri == NULL || req->method == NULL || 
-		req->headers == NULL || req->version == NULL) {
-		return 0;
-	}
+    //  Initial NULL checks for request struct members
+    if (req == NULL || req->uri == NULL || req->method == NULL ||
+        req->headers == NULL || req->version == NULL) {
+        return 0;
+    }
 
-
-	if ((path[0] == '/') || ((strstr(path, "http://") == path)
-							 && (path = strchr(path + 7,  '/')))) {
-		path += 1; // remove leading slash
-		if (path[0] == '\0') {  // substituting in index.html for a blank URL!
-			path = "index.html";
-		} else if (path[strlen(path) - 1] == '/') {
-			//concatenating index.html for a /-terminated URL!
-			strcat(path, "index.html");    
-		}
-	} else {
-		statcode = 400;
-	}
-
-	if (statcode == 200 && (urifd = open(path, O_RDONLY, 0)) < 0) {
-		if (errno == ENOENT || errno == ENOTDIR) { // file or directory doesn't exist
-			statcode = 404;
-		} else if (errno == EACCES) { // access denied
-			statcode = 403;
-		} else {
-			// some other file access problem
-			statcode = 500;
-		}
-	}
-
-	if (strstr(path, "..") != NULL) {
-		statcode = 500;
-	}
+    //  Make a mutable copy of the URI for path processing
+    strncpy(path_buffer, req->uri, sizeof(path_buffer) - 1);
+    path_buffer[sizeof(path_buffer) - 1] = '\0';
+    path = path_buffer;
 
 
-	sendmessage[0] = '\0';
-	if (strcmp(req->version, "0.9") != 0) { // full request
-		char *ext; // file extension
-		time_t curtime;
-		char *imstime;
-		struct tm tm;
-		struct stat stbuf;
+    //  More robust path validation and normalization logic
+    if ((path[0] == '/') || ((strstr(path, "http://") == path)
+                             && (path = strchr(path + 7,  '/')))) {
+        if (path != NULL) {
+             path += 1;
+             if (path[0] == '\0') {
+                 //  Check space before copying "index.html"
+                 if (strlen(path_buffer) + strlen("index.html") < sizeof(path_buffer)) {
+                    strcpy(path, "index.html");
+                 } else {
+                     statcode = 400;
+                     path = NULL;
+                 }
+             } else if (path[strlen(path) - 1] == '/') {
+                 //  Check space before appending "index.html"
+                 if (strlen(path) + strlen("index.html") < sizeof(path_buffer)) {
+                    strcat(path, "index.html"); //  Use strcat only after size check
+                 } else {
+                     statcode = 400;
+                     path = NULL;
+                 }
+             }
+        } else {
+             statcode = 400;
+             path = NULL;
+        }
+    } else {
+        statcode = 400;
+        path = NULL;
+    }
+
+    //  Handle ".." path traversal attempt more explicitly with 403
+    if (path != NULL && strstr(path, "..") != NULL) {
+        statcode = 403; // Forbidden
+        path = NULL;
+    }
+
+    //  Consolidated file access check and stat logic
+    if (statcode == 200 && path != NULL) {
+        urifd = open(path, O_RDONLY, 0);
+        if (urifd < 0) {
+            if (errno == ENOENT || errno == ENOTDIR) {
+                statcode = 404;
+            } else if (errno == EACCES) {
+                statcode = 403;
+            } else {
+                perror("open");
+                statcode = 500;
+            }
+        } else {
+             //  Use fstat on the open file descriptor
+             if (fstat(urifd, &stbuf) == -1) {
+                 perror("fstat");
+                 statcode = 500;
+                 close(urifd);
+                 urifd = -1;
+             }
+        }
+    } else if (statcode == 200 && path == NULL) {
+         if (statcode == 200) statcode = 400;
+    }
 
 
-		if (statcode == 200) {
-			if (ext = strrchr(path, '.')) ext++; // skip the '.'
-			else ext = "";
-		} else {
-			// errors are always html messages
-			ext = "html";
-		}
+    sendmessage[0] = '\0';
+    int current_len = 0; //  Track current length in buffer
+    int remaining_space = sizeof(sendmessage) - 1; //  Track remaining space
+    int n; //  Variable for snprintf return value
 
-		// Conditional GET
-		if ((strcmp(req->method, "GET") == 0)
-			&& (statcode == 200)
-			&& (imstime = get_header(req, "If-Modified-Since"))) {
+    if (strcmp(req->version, "0.9") != 0) {
+        char *ext = "";
+        time_t curtime;
+        char timebuf[30]; //  Buffer for formatted time
 
-			// Get statistics about the requested URI from the local filesystem
-			if (stat(path, &stbuf) == -1) {
-				statcode = 500;
-			}
+        if ((statcode == 200 || statcode == 304) && path != NULL) { //  Determine extension more safely
+            char *dot = strrchr(path, '.');
+            if (dot) ext = dot + 1;
+        } else {
+             ext = "html";
+        }
 
-			if (!strptime(imstime, "%a, %d %b %Y %H:%M:%S GMT", &tm)
-				&& !strptime(imstime, "%a, %d-%b-%y %H:%M:%S GMT", &tm)
-				&& !strptime(imstime, "%a %b %d %H:%M:%S %Y", &tm)) {
-				// badly formatted date
-				statcode = 400;
-			}
+        //  Conditional GET logic refined
+        if (statcode == 200 && urifd >= 0 && strcmp(req->method, "GET") == 0) {
+            char *imstime_str = get_header(req, "If-Modified-Since");
+            if (imstime_str) {
+                struct tm imstime_tm = {0};
+                if (strptime(imstime_str, "%a, %d %b %Y %H:%M:%S GMT", &imstime_tm) ||
+                    strptime(imstime_str, "%a, %d-%b-%y %H:%M:%S GMT", &imstime_tm) ||
+                    strptime(imstime_str, "%a %b %d %H:%M:%S %Y", &imstime_tm)) {
+                    if (stbuf.st_mtime <= my_timegm(&imstime_tm)) {
+                        statcode = 304;
+                    }
+                }
+                free(imstime_str); //  Free memory from get_header
+            }
+        }
 
-			if (stbuf.st_mtime <= my_timegm(&tm)) {
-				// Not Modified
-				statcode = 304;
-			}
-		}
+        time(&curtime);
+        strftime(timebuf, sizeof(timebuf), "%a, %d %b %Y %H:%M:%S GMT", gmtime(&curtime)); //  Use strftime for Date header
 
-		time(&curtime); // time for Date: header
-		strcat(sendmessage, "HTTP/1.0 ");
-		strcat(sendmessage, status(statcode));    
-		strcat(sendmessage, "\r\nDate: ");
-		strncat(sendmessage, asctime(gmtime(&curtime)), 24);
-		strcat(sendmessage, "\r\nServer: Frobozz Magic Software Company Webserver v.002");
-		strcat(sendmessage, "\r\nConnection: close");
-		strcat(sendmessage, "\r\nContent-Type: ");    
-		strcat(sendmessage, contype(ext));
-		strcat(sendmessage, "\r\n\r\n");
+        //  Use snprintf instead of strcat for all header lines
+        n = snprintf(sendmessage + current_len, remaining_space, "HTTP/1.0 %s\r\n", status(statcode));
+        if (n < 0 || n >= remaining_space) goto buffer_full; //  Check for buffer overflow/error
+        current_len += n; remaining_space -= n;
 
-	}
+        n = snprintf(sendmessage + current_len, remaining_space, "Date: %s\r\n", timebuf);
+        if (n < 0 || n >= remaining_space) goto buffer_full; //  Check for buffer overflow/error
+        current_len += n; remaining_space -= n;
 
-	if (statcode != 200) {
-		strcat(sendmessage, "<html><head><title>");
-		strcat(sendmessage, status(statcode));
-		strcat(sendmessage, "</title></head><body><h2>HTTP/1.0</h2><h1>");
-		strcat(sendmessage, status(statcode));
-		strcat(sendmessage, "</h1><h2>URI: ");
-		strcat(sendmessage, path);
-		strcat(sendmessage, "</h2></body></html>");
-	}
+        n = snprintf(sendmessage + current_len, remaining_space, "Server: Frobozz Magic Software Company Webserver v.002\r\n");
+        if (n < 0 || n >= remaining_space) goto buffer_full; //  Check for buffer overflow/error
+        current_len += n; remaining_space -= n;
 
-	if (sendmessage[0] != '\0') {
-		// send headers as long as there are headers to send
-		if (send(sockfd, sendmessage, strlen(sendmessage), 0) < 0) {
-			perror("send");
-			pthread_exit(NULL);
-		}
-	}
+        //  Last-Modified header
+        if ((statcode == 200 || statcode == 304) && urifd >= 0) {
+             strftime(timebuf, sizeof(timebuf), "%a, %d %b %Y %H:%M:%S GMT", gmtime(&stbuf.st_mtime));
+             n = snprintf(sendmessage + current_len, remaining_space, "Last-Modified: %s\r\n", timebuf);
+             if (n < 0 || n >= remaining_space) goto buffer_full;
+             current_len += n; remaining_space -= n;
+        }
 
-	if (statcode == 200 && (strcmp(req->method, "HEAD") != 0)) {
-		// send the requested file as long as there's no error and the
-		// request wasn't just for the headers
-		int readbytes;
+        //  Content-Type logic adjusted
+        if (statcode != 304) {
+             n = snprintf(sendmessage + current_len, remaining_space, "Content-Type: %s\r\n", contype(ext));
+             if (n < 0 || n >= remaining_space) goto buffer_full; //  Check for buffer overflow/error
+             current_len += n; remaining_space -= n;
+        }
 
-		while (readbytes = read(urifd, sendmessage, BUFSIZE)) {
-			if (readbytes < 0) {
-				perror("read");
-				pthread_exit(NULL);
-			}
-			if (send(sockfd, sendmessage, readbytes, 0) < 0) {
-				perror("send");
-				pthread_exit(NULL);
-			}
-		}
-	}
-}
+        //  Content-Length header
+        if (statcode == 200 && strcmp(req->method, "HEAD") != 0 && urifd >= 0) {
+              n = snprintf(sendmessage + current_len, remaining_space, "Content-Length: %ld\r\n", (long)stbuf.st_size);
+              if (n < 0 || n >= remaining_space) goto buffer_full; //  Check for buffer overflow/error
+              current_len += n; remaining_space -= n;
+        }
 
-void *data_thread(void *sockfd_ptr) {
+        n = snprintf(sendmessage + current_len, remaining_space, "Connection: close\r\n\r\n");
+        if (n < 0 || n >= remaining_space) goto buffer_full; //  Check for buffer overflow/error
+        current_len += n; remaining_space -= n;
 
-	int sockfd = *(int *) sockfd_ptr;
-	const int BUFSIZE = 5;
-	char recvmessage[BUFSIZE];
-	char *headerstr = NULL;
-	char *newheaderstr = NULL;
-	int recvbytes = 0;
-	int curheadlen = 0;
-	int totalheadlen = 0;
-	httpreq_t req;
-	int statcode = 200;
-	int done = 0;
-	int seen_header = 0;
-	char *header_end;
-	int content_length = 0;
-	char *qstr;
+    }
 
-	free(sockfd_ptr); // we have the int value out of this now
-	recvmessage[BUFSIZE - 1] = '\0'; // mark end of "string"
+    if (statcode != 200 && statcode != 304) { //  Build error body safely using snprintf
+        const char* stat_msg = status(statcode);
+        const char* uri_display = (req->uri != NULL) ? req->uri : "[unknown]";
 
-	/* Read incoming client message from the socket */  
-	while(!done && (recvbytes = recv(sockfd, recvmessage, BUFSIZE - 1, 0))) {
-		if (recvbytes < 0) {
-			perror("recv");
-			pthread_exit(NULL);
-		}
+        n = snprintf(sendmessage + current_len, remaining_space,
+                     "<html><head><title>%s</title></head>"
+                     "<body><h2>HTTP/1.0</h2><h1>%s</h1>"
+                     "<h2>URI: %s</h2></body></html>",
+                     stat_msg, stat_msg, uri_display);
 
+        if (n < 0 || n >= remaining_space) {
+              sendmessage[sizeof(sendmessage) - 1] = '\0'; //  Ensure null termination on overflow
+              current_len = sizeof(sendmessage) - 1;
+        } else {
+             current_len += n; remaining_space -= n;
+        }
+    }
 
-		recvmessage[recvbytes] = '\0';
+    if (current_len > 0) { //  Send based on calculated current_len
+        if (send(sockfd, sendmessage, current_len, 0) < 0) {
+            perror("send header");
+            goto cleanup_and_exit; //  Use goto for cleanup
+        }
+    }
 
-		if (seen_header) {
-			// getting the entity body
-			content_length -= recvbytes;
-			if (content_length <= 0) done = 1;
+    if (statcode == 200 && urifd >= 0 && (strcmp(req->method, "HEAD") != 0)) {
+        int readbytes;
+        char filebuf[BUFSIZE]; //  Use separate buffer for file reading
 
-		} else {
+        while ((readbytes = read(urifd, filebuf, sizeof(filebuf))) > 0) {
+            if (send(sockfd, filebuf, readbytes, 0) < 0) {
+                perror("send body");
+                goto cleanup_and_exit; //  Use goto for cleanup
+            }
+        }
+        if (readbytes < 0) {
+            perror("read file");
+        }
+    }
 
-			newheaderstr = (char *) malloc((totalheadlen + recvbytes + 1) * sizeof(char));
-			newheaderstr[totalheadlen + recvbytes] = '\0';
-			memcpy(newheaderstr, headerstr, totalheadlen);
-			memcpy(newheaderstr + totalheadlen, recvmessage, recvbytes);
+    goto cleanup_and_exit; //  Normal exit path leads to cleanup
 
-			if (headerstr != NULL) {
-				free(headerstr);
-			}
+buffer_full: //  Label for buffer overflow during header creation
+    fprintf(stderr, "Error: Response header exceeded buffer size (%d bytes).\n", BUFSIZE);
+    const char *errMsg = "HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+    send(sockfd, errMsg, strlen(errMsg), 0);
 
-			headerstr = newheaderstr;
-			totalheadlen += recvbytes;
+cleanup_and_exit: //  Label for cleanup code
+    if (urifd >= 0) {
+        close(urifd); //  Ensure file descriptor is closed
+    }
 
-			header_end = strstr(headerstr, "\r\n\r\n");
+    //  Free memory allocated by parsereq (assuming it allocates these)
+    if (req != NULL) {
+         if (req->method && req->method[0] != '\0') free(req->method);
+         if (req->uri && req->uri[0] != '\0') free(req->uri);
+         if (req->version && req->version[0] != '\0') free(req->version);
+         if (req->headers && req->headers[0] != '\0') free(req->headers);
+    }
 
-			if (header_end) {
-				seen_header = 1;
-				header_end[2] = '\0';
-
-				if (parsereq(&req, headerstr) != 0) {
-					statcode = 400;
-				}
-
-				if (strcmp(req.method, "POST") == 0) {
-
-					// grab the body length
-					char *clenstr = get_header(&req, "Content-Length");
-
-					if (clenstr) {
-
-						content_length = atoi(clenstr) - ((headerstr + totalheadlen) - header_end - 4);
-
-						if (content_length <= 0) {
-							done = 1;
-						}
-
-						free(clenstr);
-
-					} else {
-
-						statcode = 400; // bad request -- no content length
-						done = 1;
-					}
-
-				} else {
-
-					// This isn't a POST, so there's no entity body
-					done = 1;
-
-					if (strcmp(req.method, "GET") != 0
-						&& strcmp(req.method, "HEAD") != 0) {
-
-						statcode = 501; // unknown request method
-					}
-
-				}
-			} // end of "if (header)end)"
-		}
-	} // end of recv while loop
-
-	// used to deref a NULL pointer here... :(
-	if (headerstr != NULL) {
-		printf("%s\n", headerstr);
-		free(headerstr);
-	}
-
-	send_response(sockfd, &req, statcode);
-	close(sockfd);
-
-	return NULL;
-
+    return 0; //  Return 0 consistent with original void* expectation in data_thread context (though function returns int)
 }
 
 int main(int argc, char *argv[]) {
@@ -487,7 +470,7 @@ int main(int argc, char *argv[]) {
 	saddr.sin_addr.s_addr=htonl(INADDR_ANY);
 
 	/* Bind our local address so that the client can send to us */
-	if(bind(sockfd,(struct sockaddr *) &saddr,sizeof(saddr)) == -1) {  
+	if(bind(sockfd,(struct sockaddr *) &saddr,sizeof(saddr)) == -1) {
 		perror("bind");
 		exit(1);
 	}
