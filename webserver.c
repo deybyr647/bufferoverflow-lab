@@ -42,6 +42,8 @@ typedef struct {
 	char *headers;
 } httpreq_t;
 
+void *data_thread(void *sockfd_ptr);
+
 
 /* NOTE: this function is based on a function provided in the GNU "timegm" man
    page. timegm is a GNU extension to time.h that returns the given tm struct as
