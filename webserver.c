@@ -229,25 +229,25 @@ char *status(int statcode) {
 // --- Start of Modified Section ---
 
 int send_response(int sockfd, httpreq_t *req, int statcode) {
-	int urifd = -1; // Changed: Initialize to -1 to indicate not open
+	int urifd = -1; //  Initialize to -1 to indicate not open
 	const int BUFSIZE = 1024;
 	char sendmessage[BUFSIZE];
-    // char *path = req->uri; // Changed: Don't modify req->uri directly, use a copy
-    char path_buffer[BUFSIZE]; // Added: Local buffer for path manipulation
-    char *path = NULL; // Added: Pointer to the path being used (either original or modified)
-    char *imstime = NULL; // Added: Define imstime here for cleanup scope
-    struct stat stbuf = {0}; // Added: Define stbuf here for broader scope if needed
-    size_t current_len = 0; // Added: Track current length of sendmessage
-    int ok = 1; // Added: Flag to track if buffer operations succeeded
+    // char *path = req->uri; //  Don't modify req->uri directly, use a copy
+    char path_buffer[BUFSIZE]; //  Local buffer for path manipulation
+    char *path = NULL; //  Pointer to the path being used (either original or modified)
+    char *imstime = NULL; //  Define imstime here for cleanup scope
+    struct stat stbuf = {0}; //  Define stbuf here for broader scope if needed
+    size_t current_len = 0; //  Track current length of sendmessage
+    int ok = 1; //  Flag to track if buffer operations succeeded
 
-	// Added: Basic NULL check for request struct members
+	//  Basic NULL check for request struct members
     if (req == NULL || req->uri == NULL || req->method == NULL ||
 		req->headers == NULL || req->version == NULL) {
 		// Cannot proceed without valid request parts. Original code just returned 0.
 		return 0;
 	}
 
-    // Added: Copy URI to local buffer for safe modification
+    //  Copy URI to local buffer for safe modification
     // Use strncpy for safety against overly long URIs in req->uri
     strncpy(path_buffer, req->uri, sizeof(path_buffer) - 1);
     path_buffer[sizeof(path_buffer) - 1] = '\0'; // Ensure null termination
@@ -256,11 +256,11 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
 
 	if ((path[0] == '/') || ((strstr(path, "http://") == path)
 							 && (path = strchr(path + 7,  '/')))) {
-		// Added: Check result of strchr
+		//  Check result of strchr
         if (path) {
 		    path += 1; // remove leading slash (or slash after hostname)
 		    if (path[0] == '\0') {  // substituting in index.html for a blank URL!
-			    // path = "index.html"; // Changed: Copy safely instead of pointer assignment
+			    // path = "index.html"; //  Copy safely instead of pointer assignment
                 // Check if "index.html" fits in path_buffer
                 if (strlen("index.html") < sizeof(path_buffer)) {
                     strcpy(path_buffer, "index.html");
@@ -271,7 +271,7 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
                 }
 		    } else if (path[strlen(path) - 1] == '/') {
 			    //concatenating index.html for a /-terminated URL!
-			    // strcat(path, "index.html"); // Changed: Unsafe strcat, use safe append
+			    // strcat(path, "index.html"); //  Unsafe strcat, use safe append
                 // Check if appending "index.html" fits
                 size_t current_path_len = strlen(path);
                 // Check space needed: current len + len("index.html") + null terminator
@@ -289,19 +289,19 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
         }
 	} else {
 		statcode = 400;
-        path = NULL; // Added: Mark path as invalid
+        path = NULL; //  Mark path as invalid
 	}
 
-    // Changed: Check path for NULL before using strstr
+    //  Check path for NULL before using strstr
 	// if (strstr(path, "..") != NULL) {
-    // Changed: Handle ".." path traversal attempt more explicitly with 403
+    //  Handle ".." path traversal attempt more explicitly with 403
     if (path != NULL && strstr(path, "..") != NULL) {
 		// statcode = 500; // Original code used 500, 403 is more appropriate
         statcode = 403; // Forbidden
-        path = NULL; // Added: Mark path as invalid
+        path = NULL; //  Mark path as invalid
 	}
 
-    // Changed: Check path for NULL before trying to open
+    //  Check path for NULL before trying to open
 	// if (statcode == 200 && (urifd = open(path, O_RDONLY, 0)) < 0) {
     if (statcode == 200 && path != NULL) {
         urifd = open(path, O_RDONLY, 0);
@@ -312,11 +312,11 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
 			    statcode = 403;
 		    } else {
 			    // some other file access problem
-                perror("open"); // Added: Print specific error
+                perror("open"); //  Print specific error
 			    statcode = 500;
 		    }
         } else {
-             // Added: Get file stats using fstat if open succeeded
+             //  Get file stats using fstat if open succeeded
              if (fstat(urifd, &stbuf) == -1) {
                  perror("fstat");
                  statcode = 500;
@@ -325,7 +325,7 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
              }
         }
 	} else if (statcode == 200 && path == NULL) {
-        // Added: If path became NULL due to earlier error, update statcode
+        //  If path became NULL due to earlier error, update statcode
         if (statcode == 200) statcode = 400; // Default to Bad Request
     }
 
@@ -334,15 +334,15 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
     current_len = 0; // Reset length tracker
 
 	if (strcmp(req->version, "0.9") != 0) { // full request
-		char *ext = NULL; // Changed: Initialize to NULL
+		char *ext = NULL; //  Initialize to NULL
 		time_t curtime;
 		// char *imstime = NULL; // Defined outside block now
-		struct tm tm = {0}; // Changed: Initialize struct tm
+		struct tm tm = {0}; //  Initialize struct tm
 		// struct stat stbuf = {0}; // Defined outside block now
-        char timebuf[30]; // Added: Buffer for formatted time string
-        char len_buf[32]; // Added: Buffer for content length string
+        char timebuf[30]; //  Buffer for formatted time string
+        char len_buf[32]; //  Buffer for content length string
 
-		// Changed: Determine extension only if path is valid and file might be accessible
+		//  Determine extension only if path is valid and file might be accessible
         if ((statcode == 200 || statcode == 304) && path != NULL) {
             char *dot = strrchr(path, '.');
             if (dot) ext = dot + 1; // Point after the '.'
@@ -380,10 +380,10 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
 		time(&curtime); // time for Date: header
 
         // --- Start Safe String Construction ---
-        // Added: Check remaining space before each append operation
+        //  Check remaining space before each append operation
         #define CHECK_SPACE(needed) (current_len + (needed) < BUFSIZE)
 
-        // Added: Append string safely, update current_len, set ok flag on failure
+        //  Append string safely, update current_len, set ok flag on failure
         #define SAFE_APPEND(str) \
             do { \
                 if (ok) { \
@@ -398,7 +398,7 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
                 } \
             } while(0)
 
-        // Added: Append N characters safely, update current_len, set ok flag on failure
+        //  Append N characters safely, update current_len, set ok flag on failure
         #define SAFE_APPEND_N(str, n) \
             do { \
                 if (ok) { \
@@ -414,17 +414,17 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
                 } \
             } while(0)
 
-        // Changed: Use SAFE_APPEND and SAFE_APPEND_N instead of strcat/strncat
+        //  Use SAFE_APPEND and SAFE_APPEND_N instead of strcat/strncat
         SAFE_APPEND("HTTP/1.0 ");
         SAFE_APPEND(status(statcode));
         SAFE_APPEND("\r\nDate: ");
-        // SAFE_APPEND_N(asctime(gmtime(&curtime)), 24); // Changed: Use strftime for safety and correctness
+        // SAFE_APPEND_N(asctime(gmtime(&curtime)), 24); //  Use strftime for safety and correctness
         strftime(timebuf, sizeof(timebuf), "%a, %d %b %Y %H:%M:%S GMT", gmtime(&curtime));
         SAFE_APPEND(timebuf);
         SAFE_APPEND("\r\nServer: Frobozz Magic Software Company Webserver v.002");
         SAFE_APPEND("\r\nConnection: close");
 
-        // Added: Add Content-Length and Last-Modified headers where appropriate
+        //  Add Content-Length and Last-Modified headers where appropriate
         if (ok && statcode < 400 && urifd >= 0 && stbuf.st_mtime != 0) {
             strftime(timebuf, sizeof(timebuf), "%a, %d %b %Y %H:%M:%S GMT", gmtime(&stbuf.st_mtime));
             SAFE_APPEND("\r\nLast-Modified: ");
@@ -437,34 +437,34 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
             }
         }
 
-        // Changed: Add Content-Type header safely
+        //  Add Content-Type header safely
         if (ok && statcode != 304) { // Don't send Content-Type for 304
             SAFE_APPEND("\r\nContent-Type: ");
             SAFE_APPEND(contype(ext));
         }
-        // Changed: Add final CRLF safely
+        //  Add final CRLF safely
         SAFE_APPEND("\r\n\r\n");
 
 	} // End if (strcmp(req->version, "0.9") != 0)
 
-    // Changed: Build error message body safely if needed and buffer had space
+    //  Build error message body safely if needed and buffer had space
 	// if (statcode != 200) {
-    if (ok && statcode >= 400) { // Changed: Check ok flag and if statcode is an error
+    if (ok && statcode >= 400) { //  Check ok flag and if statcode is an error
         const char* stat_msg = status(statcode);
-        // Added: Use original URI for display in error message
+        //  Use original URI for display in error message
         const char* uri_display = (req->uri != NULL) ? req->uri : "[unknown]";
 
-        // Changed: Use SAFE_APPEND for error message parts
+        //  Use SAFE_APPEND for error message parts
 		SAFE_APPEND("<html><head><title>");
 		SAFE_APPEND(stat_msg);
 		SAFE_APPEND("</title></head><body><h2>HTTP/1.0</h2><h1>");
 		SAFE_APPEND(stat_msg);
 		SAFE_APPEND("</h1><h2>URI: ");
-		SAFE_APPEND(uri_display); // Changed: Use original URI
+		SAFE_APPEND(uri_display); //  Use original URI
 		SAFE_APPEND("</h2></body></html>");
 	}
 
-    // Added: Check 'ok' flag before sending. If not ok, buffer overflow occurred.
+    //  Check 'ok' flag before sending. If not ok, buffer overflow occurred.
     if (!ok) {
         // Buffer overflow happened during message construction. Send minimal error.
         fprintf(stderr, "Internal Server Error: Response construction exceeded buffer size.\n");
@@ -473,51 +473,51 @@ int send_response(int sockfd, httpreq_t *req, int statcode) {
         send(sockfd, errMsg, strlen(errMsg), 0);
     } else if (sendmessage[0] != '\0') {
 		// send headers (and potential error body) as long as they were built ok
-		if (send(sockfd, sendmessage, current_len, 0) < 0) { // Changed: Send current_len bytes
+		if (send(sockfd, sendmessage, current_len, 0) < 0) { //  Send current_len bytes
 			perror("send header");
-			// pthread_exit(NULL); // Changed: Avoid exiting thread directly, allow cleanup
+			// pthread_exit(NULL); //  Avoid exiting thread directly, allow cleanup
 		}
 	}
 
-    // Changed: Check urifd >= 0 before trying to read/close
+    //  Check urifd >= 0 before trying to read/close
 	// if (statcode == 200 && (strcmp(req->method, "HEAD") != 0)) {
-    // Added: Check 'ok' flag before sending body
+    //  Check 'ok' flag before sending body
     if (ok && statcode == 200 && urifd >= 0 && (strcmp(req->method, "HEAD") != 0)) {
 		// send the requested file as long as there's no error and the
 		// request wasn't just for the headers
 		int readbytes;
-        char filebuf[BUFSIZE]; // Added: Use a separate buffer for reading file content
+        char filebuf[BUFSIZE]; //  Use a separate buffer for reading file content
 
-		// while (readbytes = read(urifd, sendmessage, BUFSIZE)) { // Changed: Read into filebuf, not sendmessage
-        while ((readbytes = read(urifd, filebuf, sizeof(filebuf))) > 0) { // Changed: Check > 0
+		// while (readbytes = read(urifd, sendmessage, BUFSIZE)) { //  Read into filebuf, not sendmessage
+        while ((readbytes = read(urifd, filebuf, sizeof(filebuf))) > 0) { //  Check > 0
 			// if (readbytes < 0) { // Moved check after read
 			// 	perror("read");
 			// 	pthread_exit(NULL);
 			// }
-			// if (send(sockfd, sendmessage, readbytes, 0) < 0) { // Changed: Send filebuf
+			// if (send(sockfd, sendmessage, readbytes, 0) < 0) { //  Send filebuf
             if (send(sockfd, filebuf, readbytes, 0) < 0) {
 				perror("send body");
-				// pthread_exit(NULL); // Changed: Avoid exiting thread directly
+				// pthread_exit(NULL); //  Avoid exiting thread directly
                 break; // Stop trying to send if error occurs
 			}
 		}
-        // Added: Check for read error after the loop
+        //  Check for read error after the loop
         if (readbytes < 0) {
             perror("read file");
         }
 	}
 
-    // --- Cleanup --- // Added: Cleanup section comment
+    // --- Cleanup --- //  Cleanup section comment
     if (urifd >= 0) {
-        close(urifd); // Added: Close file descriptor if it was opened
+        close(urifd); //  Close file descriptor if it was opened
     }
-    free(imstime); // Added: Free memory allocated by get_header (safe to call free on NULL)
+    free(imstime); //  Free memory allocated by get_header (safe to call free on NULL)
 
     // NOTE: Memory allocated by parsereq (req->method, req->uri, etc.)
     // is NOT freed here. It should be freed in the calling function (data_thread)
     // after send_response returns, as was the original design pattern.
 
-    return 0; // Added: Return value (though function is void* in thread context)
+    return 0; //  Return value (though function is void* in thread context)
 }
 
 // --- End of Modified Section ---
@@ -627,7 +627,7 @@ void *data_thread(void *sockfd_ptr) {
 	}
 
 	send_response(sockfd, &req, statcode);
-    // Added: Free memory allocated by parsereq after send_response is done using it
+    //  Free memory allocated by parsereq after send_response is done using it
     if (req.method && req.method[0] != '\0') free(req.method);
     if (req.uri && req.uri[0] != '\0') free(req.uri);
     // Check if version was allocated (not the "0.9" literal) before freeing
@@ -640,7 +640,7 @@ void *data_thread(void *sockfd_ptr) {
 
 }
 
-// Added: Function prototype for data_thread before main
+//  Function prototype for data_thread before main
 void *data_thread(void *sockfd_ptr);
 
 
